@@ -1,0 +1,402 @@
+---
+title: "Insurance Premium Prediction using Linear Regression - Contd."
+output: 
+  html_document :
+    toc : TRUE
+    theme : cerulean
+---
+
+We will continue with our case study on Insurance Premium dataset and use Multiple Linear Regression techniques. Let us see if we can improve the RMSE ( ~ 5756 ) we got yesterday by building 2 sets of models for smoker and non-smoker.
+
+Let us take the initial steps from the previous exercise so that we can start applying further concepts.
+
+***
+
+### Prepare the environment
+
+```{r echo=FALSE}
+
+# Clear the environment
+rm(list = ls(all=TRUE))
+
+# Convert exponent powers in numeric values to decimal
+options(scipen = 10)
+
+```
+
+- Load the libraries
+
+```{r message=FALSE}
+#install.packages('MASS')
+library(DataExplorer)   # plot_correlation
+library(dplyr)          # select, %>% 
+library(caret)          # createDataPartition
+library(DMwR)           # regr.eval
+library(MASS)           # stepAIC
+
+```
+
+- Load the dataset
+
+```{r}
+
+insurance<- read.csv("C:/Users/TEC/Desktop/20190914_CSE_7402C_BATCH_70_LinearRegression_Student_Copy/data/insurance.csv")
+str(insurance)
+```
+
+##### Remember our target variable is charges.
+
+***
+
+### Data Preprocessing 
+
+- Data Type Conversion
+
+```{r}
+
+# Convert Children to factor
+insurance$children <- as.factor(insurance$children)
+glimpse(insurance)
+
+```
+
+***
+
+### Correlation Plot 
+
+As we are learning Multiple LInear Regresssion today, we can use more than one variables. Lets us look at correlation plot w.r.t all variables.
+
+```{r}
+
+plot_correlation(insurance)
+
+```
+
+Notice that each category of a categorical variables ( factors in R ) shows up as a seperate variable :
+
+- Sex shows up as sex_male and sex_female
+- Children shows up as children_0, children_1, children_2, children_3, children_4, children_5
+- Smoker shows up as smoker_yes, smoker_no
+- Region shows up as region_northeast, region_northwest, region_southeast, region_southwest
+
+This happens because in order to find relationship between the target and a categorical column, the categorical column is one-hot encoded i.e. for n categories in variable X, n variable are created with value 1 where the category is present and 0 where it is not present.
+
+> Observations
+
+- Charges has strong correlation with Smoker.
+- Charges has weak positive relationship with Age and BMI.
+- Charges has almost no relationship with any other variable.
+
+***
+
+### Dummy Variable Trap
+
+One interesting thing to notice is the relationship of these categories within themselves.
+
+- sex_male and sex_female have correlation 1 with themselves and correlation -1 with each other. _Same for smoker._
+- While for children and region, the number of categories are more so we don't see a direct correlation of -1. This correlation get shared within the number of categories. Nevertheless, the categorical variable have a strong relationship within themselves as compared to other variables.
+
+When we use n variables for n categories, it is clear from above inferences based on correlation that the each category can be infered from the other category. For example, when we have data for smoker_no then we inherently know about smoker_yes as it is just the opposite.
+
+If we use both the variables while training our models then it results in a very strong **multicolinearity** problem which means two independent variables have strong correlation. This redundancy results in improper coefficient values. So, we should make sure that we drop one of the category-variable.
+
+##### One-hot Encoding vs Dummification
+
+There are two techniques to encode a categorical variable with a very small difference.
+
+Let us use `dummyVars` from caret package to view both.
+
+- One-hot Encoding : Creates n variables for n categories
+
+```{r}
+insurance_dummy <- dummyVars(formula = charges~., insurance)
+head(predict(insurance_dummy, insurance))
+
+```
+
+- Dummification : Creates ( n - 1 ) variables for n categories
+
+```{r}
+
+# Use 'sep' argument to give a seperator of your choice
+# Use 'fullRank = T' to avoid linear dependencies
+insurance_dummy <- dummyVars(formula = charges~., insurance, sep = '-', fullRank = T)
+head(predict(insurance_dummy, insurance))
+
+```
+
+
+***
+
+### Train - Test Split
+
+We will use `createDataPartition` from caret to split our dataset into train and test.
+
+```{r}
+set.seed(123)
+trainIndexC <- createDataPartition(insurance$charges, p = .7, list = F)
+insuranceTrain <- insurance[ trainIndexC, ]
+insuranceTest <- insurance[-trainIndexC, ]
+head(insuranceTrain)
+head(insuranceTest)
+
+```
+
+***
+
+### Model Training
+
+We will use the same `lm` function to build our linear model. The only thing that changes is the formula.
+
+- `.` : for all indepedent variables
+- `+` : for specifying independent variables like 'x1 + x2'
+
+Lets build our first MLR model with only those variables which show some correlation.
+
+**We do not need to do dummification explicitly. lm() takes care of that by implicitly dummifying all factor variables into corresponding ( n - 1 ) variables.**
+
+```{r}
+insurance_charges_lm = lm(formula = charges ~ age + bmi + smoker, data = insuranceTrain)
+summary(insurance_charges_lm)
+
+```
+
+***
+
+### Analyse Model Performance {.tabset .tabset-fade .tabset-pills}
+
+#### Model Summary
+
+##### What is the equation of the Model ?
+
+y = 253.21Age + 316BMI + 23960.93SMoker(yes)
+
+
+##### Interpretation ?
+if one point of increase in age the charges increases by 253.21
+if one point of increase in bmi the charges increases by 316
+if  the  smoker(yes) the charges increases by 23960.93
+
+##### Is the Slope significant ?
+the p value is very small to 0.05 which is the critical region, so the slope is not zero so we reject the null hypothesis (H0: m = 0)
+
+    
+##### What is the predictive power of the model ?
+The predictive power is 75.62 % i.e 75.69 % of the variations in charges  is explained by the 3 predictors
+
+
+##### Is the Model significant ?
+Check F propability
+we reject the null hypothesis.
+
+***
+
+#### Residual Analysis
+
+We can plot the residuals to check whether the assumptions for linear regression hold true.
+
+```{r}
+
+par(mfrow= c(2,2))
+plot(insurance_charges_lm)
+#1 model is linear
+#2 model is not normal
+#3 scale shows variance
+#4 infuential points
+
+```
+
+> Observations
+
+
+We will try to improve these results using transformations later.
+
+***
+
+### Model Evaluation
+
+Let us evaluate our model with test data.
+
+```{r}
+insurance_pred <- predict(insurance_charges_lm, insuranceTest)
+regr.eval(insuranceTest$charges, insurance_pred)
+
+
+```
+
+We will create a dataframe to store all performance measure values for each model we build.
+
+```{r}
+Model <- data.frame(insurance_charges_lm = regr.eval(insuranceTest$charges, insurance_pred)) %>%
+  rbind(Rsquared = summary(insurance_charges_lm)$r.squared) %>%
+  rbind(ADjRsquared = summary(insurance_charges_lm)$adj.r.squared)
+Model
+
+```
+
+##### Let us build another model with all the variables.
+
+```{r}
+
+insurance_all_lm = lm(formula = charges~., insuranceTrain)
+summary(insurance_all_lm)
+
+```
+
+> Observations
+
+
+Lets evaluate the model on test data and store the details in Model_Performance dataframe.
+
+```{r}
+
+insurance_new_pred<- predict(insurance_all_lm, insuranceTest)
+regr.eval(insuranceTest$charges, insurance_new_pred)
+
+
+```
+
+#### Which model would you prefer ?
+
+Although the error is slightly smaller and R-squared slightly better, when we use all variables. This model has a lot of insignificant variables so it is not a good choice.
+
+It is always best to go for a simple model. When only 3 variables are giving nearly the same results then it is best to not add so many more variables.
+
+Nevertheless, let us understand the equations in the second model for multiple categorical variables with multiple categories.
+
+The coefficients are given by `coef` argument.
+
+```{r}
+
+
+insurance_all_lm$coef
+```
+
+The equation for this model is :
+
+
+
+##### What will be the equation for regionnortheast ?
+
+
+
+##### What will be the equation for regionnorthwest ?
+
+
+
+##### What does the intercept tell us ?
+
+
+
+***
+
+### Transformations
+
+If one or more assumptions for linear regression are not satisfied, it is a common approach to transform the original independent, target or both variables to induce more normality in the data.
+
+Although there are some thumb rules about which transformation can be applied in which scenario, mostly it is a hit and trial situation.
+
+Log and Sqrt are some common transformations. Let us try a few.
+
+##### Square the Age
+
+```{r}
+insurance$age = insurance$age^2
+head(insurance)
+
+```
+```{r}
+set.seed(124)
+trainIndexCN <- createDataPartition(insurance$charges, p = .7, list = F)
+insuranceTrainN <- insurance[ trainIndexCN, ]
+insuranceTestN <- insurance[-trainIndexCN, ]
+head(insuranceTrainN)
+head(insuranceTestN)
+```
+```{r}
+insurance_charge_lm = lm(formula = charges ~ age + bmi + smoker , Data = insuranceTrainN)
+summary(insurance_charge_lm)
+```
+
+##### Square the Age and Square Root the BMI
+
+```{r}
+
+
+```
+
+> Observations
+
+
+
+***
+
+### Stepwise Regression
+
+Often we would have to check many model combinations to figure out the best suited independent variables for the linear model.
+
+Stepwise Regression in R automates this process by compairing different combination of model w.r.t AIC.
+
+$$AIC = 2k + n\ln(\frac{RSS}{n})$$
+
+k = number of independent variables + 1 ( for intercept )
+
+**Lower the AIC better the model**
+
+As AIC is a measure of error and the number of variables. It improves when error reduces but increases if too many variables are added. Thus it tries to find the simplest model with least SSE with least number of variables.
+
+We can use `stepAIC` from MASS and pass our model with all variables.
+
+```{r}
+
+
+
+```
+
+You can also try other arguments with direction = 'forward' and direction = 'backward'
+
+```{r}
+
+ #using stepAIC with forward direction
+
+ stepAIC(lm(charges ~ 1, insurance_train), 
+         scope = list(lower = lm(charges ~ 1, insurance_train), 
+                     upper = lm(charges ~ ., insurance_train) ), 
+        direction = "forward")
+
+
+ #using stepAIC with backward direction
+
+ stepAIC(lm(charges ~ ., insurance_train), 
+         direction = "backward")
+
+```
+
+Let us check the residual plot and evaluate the AIC model.
+
+```{r}
+
+par(mfrow=c(2,2))
+plot(insurance_lm_AIC)
+
+insurance_preds_AIC <- predict(insurance_lm_AIC, insurance_test)
+
+Model_Performance <- Model_Performance %>% 
+  cbind(insurance_lm_AIC = c(regr.eval(insurance_test$charges, insurance_preds_AIC), 
+           summary(insurance_lm_AIC)$r.squared,
+           summary(insurance_lm_AIC)$adj.r.squared) ) 
+
+Model_Performance
+
+```
+
+
+##### Based on our experiments, all models are relatively close but tranformation model on Age (Square) and BMI (Sqrt) is just slighty better. Even then we couldn't do better than our 2 split model approach we used in SLR. As another experiment, try to apply this transformation on the 2 split model and see if the results improve.
+
+***
+
+### Practice Assignment
+
+Prepare a case study on Kaggle [Boston Housing](https://www.kaggle.com/c/boston-housing) Dataset.
+
+***
